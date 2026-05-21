@@ -1,0 +1,29 @@
+BEGIN TRY
+
+BEGIN TRAN;
+
+-- CreateTable
+CREATE TABLE [dbo].[FileTicket] (
+    [id] INT NOT NULL IDENTITY(1,1),
+    [fileName] NVARCHAR(1000) NOT NULL,
+    [ticketId] INT NOT NULL,
+    [timeStmp] DATETIME2 NOT NULL CONSTRAINT [FileTicket_timeStmp_df] DEFAULT CURRENT_TIMESTAMP,
+    [status] NVARCHAR(1000) NOT NULL CONSTRAINT [FileTicket_status_df] DEFAULT 'use',
+    CONSTRAINT [FileTicket_pkey] PRIMARY KEY CLUSTERED ([id])
+);
+
+-- AddForeignKey
+ALTER TABLE [dbo].[FileTicket] ADD CONSTRAINT [FileTicket_ticketId_fkey] FOREIGN KEY ([ticketId]) REFERENCES [dbo].[Ticket]([id]) ON DELETE NO ACTION ON UPDATE CASCADE;
+
+COMMIT TRAN;
+
+END TRY
+BEGIN CATCH
+
+IF @@TRANCOUNT > 0
+BEGIN
+    ROLLBACK TRAN;
+END;
+THROW
+
+END CATCH

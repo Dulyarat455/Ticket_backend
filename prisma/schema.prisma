@@ -20,5 +20,115 @@ model User {
   id Int @id() @default(autoincrement())
   name String 
   password String
+  empNo String?
+  rfId String?
+  role String?
+  status String @default("use")
+  MapGroupSectionUser MapGroupSectionUser[]
+  Project Project[]
+  
 
 }
+
+
+model Group {
+  id Int @id() @default(autoincrement())
+  name String
+  status String @default("use")
+  MapGroupSectionUser MapGroupSectionUser[]
+} 
+
+
+model Section {
+  id Int @id() @default(autoincrement())
+  name String
+  status String @default("use")
+  MapGroupSectionUser MapGroupSectionUser[]
+}
+
+
+model MapGroupSectionUser {
+  id Int @id() @default(autoincrement())
+  sectionId Int
+  groupId Int
+  userId Int
+  status String @default("use")
+  Section Section @relation(fields: [sectionId], references: [id])
+  Group Group @relation(fields: [groupId], references: [id])
+  User User @relation(fields: [userId], references: [id])
+}
+
+
+model Project {
+  id Int @id() @default(autoincrement())
+  name String
+  description String?
+  email String?
+  phone String?
+  userId Int
+  timeStmp DateTime @default(now())
+  status String @default("use")
+  User User @relation(fields: [userId], references: [id]) 
+  ProjectStatus ProjectStatus[]
+  Ticket Ticket[]
+}
+
+
+model ProjectStatus {
+  id Int @id() @default(autoincrement())
+  projectId Int 
+  state String
+  timeStmp DateTime @default(now())
+  status String @default("use")
+  Project Project @relation(fields: [projectId], references: [id])
+}
+
+
+
+model Ticket {
+  id Int @id() @default(autoincrement())
+  ticketNo String 
+  area String
+  contact String
+  problemTitle String
+  problemDetail String
+  projectId Int
+  piority String
+  userId Int
+  timeStmp DateTime @default(now())
+  status String @default("use")
+  Project Project @relation(fields: [projectId], references: [id])
+  FileTicket FileTicket[]
+  TicketStatus TicketStatus[]
+}
+
+
+model Impact {
+  id Int @id() @default(autoincrement())
+  name String
+  timeStmp DateTime @default(now())
+  status String @default("use")
+}
+
+
+model FileTicket {
+  id Int @id() @default(autoincrement())
+  fileName String
+  ticketId Int 
+  timeStmp DateTime @default(now())
+  status String @default("use")
+  Ticket Ticket @relation(fields: [ticketId], references: [id])
+}
+
+
+model TicketStatus {
+  id Int @id() @default(autoincrement())
+  ticketId Int
+  state String
+  inchargeById Int?
+  status String @default("use")
+  Ticket Ticket @relation(fields: [ticketId], references: [id])
+}
+
+
+

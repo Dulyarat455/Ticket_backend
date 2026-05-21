@@ -208,15 +208,268 @@ module.exports = {
       },
 
       list: async (req, res) => {
-        try{
-           
-          
-          
-        }catch(e){
-            return res.status(500).send({ error: e.message });
+        try {
+          const tickets = await prisma.ticket.findMany({
+            where: {
+              status: "use"
+            },
+            orderBy: {
+              id: "desc"
+            },
+            include: {
+              Project: {
+                select: {
+                  id: true,
+                  name: true,
+                  userId: true
+                }
+              },
+              FileTicket: {
+                where: {
+                  status: "use"
+                },
+                select: {
+                  id: true,
+                  fileName: true,
+                  timeStmp: true
+                },
+                orderBy: {
+                  id: "asc"
+                }
+              },
+              TicketStatus: {
+                where: {
+                  status: "use"
+                },
+                select: {
+                  id: true,
+                  state: true,
+                  inchargeById: true
+                },
+                orderBy: {
+                  id: "desc"
+                },
+                take: 1
+              }
+            }
+          });
+      
+          const requestUserIds = tickets
+            .map(t => t.userId)
+            .filter(id => !!id);
+      
+          const inchargeUserIds = tickets
+            .map(t => t.TicketStatus?.[0]?.inchargeById)
+            .filter(id => !!id);
+      
+          const allUserIds = [...new Set([...requestUserIds, ...inchargeUserIds])];
+      
+          const users = await prisma.user.findMany({
+            where: {
+              id: {
+                in: allUserIds
+              },
+              status: "use"
+            },
+            select: {
+              id: true,
+              name: true,
+              empNo: true
+            }
+          });
+      
+          const userMap = new Map(users.map(u => [u.id, u]));
+      
+          const results = tickets.map(ticket => {
+            const requestUser = userMap.get(ticket.userId);
+            const latestStatus = ticket.TicketStatus?.[0] || null;
+      
+            const inchargeUser = latestStatus?.inchargeById
+              ? userMap.get(latestStatus.inchargeById)
+              : null;
+      
+            return {
+              id: ticket.id,
+              ticketNo: ticket.ticketNo,
+      
+              projectId: ticket.projectId,
+              projectName: ticket.Project?.name || "-",
+      
+              area: ticket.area,
+              contact: ticket.contact,
+              problemTitle: ticket.problemTitle,
+              problemDetail: ticket.problemDetail,
+      
+              priority: ticket.piority,
+      
+              state: latestStatus?.state || "-",
+              ticketStatusId: latestStatus?.id || null,
+      
+              requestById: ticket.userId,
+              requestByName: requestUser?.name || "-",
+              requestByEmpNo: requestUser?.empNo || "-",
+              requestByDisplay: requestUser
+                ? `${requestUser.name}${requestUser.empNo ? ` [${requestUser.empNo}]` : ""}`
+                : "-",
+      
+              requestAt: ticket.timeStmp,
+      
+              inchargeById: latestStatus?.inchargeById || null,
+              inchargeByName: inchargeUser?.name || "",
+              inchargeByEmpNo: inchargeUser?.empNo || "",
+              inchargeByDisplay: inchargeUser
+                ? `${inchargeUser.name}${inchargeUser.empNo ? ` [${inchargeUser.empNo}]` : ""}`
+                : "-",
+      
+              attachments: ticket.FileTicket.map(file => ({
+                id: file.id,
+                fileName: file.fileName,
+                fileUrl: `/ticketFile/${file.fileName}`,
+                timeStmp: file.timeStmp
+              }))
+            };
+          });
+      
+          return res.status(200).send({
+            message: "Fetch ticket list success",
+            results
+          });
+        } catch (e) {
+          return res.status(500).send({
+            message: "Fetch ticket list failed",
+            error: e.message
+          });
+        }
+      },
+
+
+      ownerIncharge: async (req, res) => {
+        try {
+          const { userId, ticketId, ticketStatus, reply } = req.body;
+      
+          // =========================
+          // Validate required fields
+          // =========================
+          if (userId == null || ticketId == null || !ticketStatus) {
+            return res.status(400).send({
+              message: "missing_required_fields"
+            });
+          }
+      
+          const allowStatus = ["onprocess", "deny", "complete"];
+      
+          if (!allowStatus.includes(ticketStatus)) {
+            return res.status(400).send({
+              message: "invalid_ticket_status",
+              allowStatus
+            });
+          }
+      
+          const result = await prisma.$transaction(async (tx) => {
+            // =========================
+            // Check Ticket exists
+            // =========================
+            const ticket = await tx.ticket.findFirst({
+              where: {
+                id: Number(ticketId),
+                status: "use"
+              },
+              include: {
+                Project: true
+              }
+            });
+      
+            if (!ticket) {
+              throw new Error("ticket_not_found");
+            }
+      
+            // =========================
+            // Check User exists
+            // =========================
+            const user = await tx.user.findFirst({
+              where: {
+                id: Number(userId),
+                status: "use"
+              },
+              select: {
+                id: true,
+                name: true,
+                empNo: true
+              }
+            });
+      
+            if (!user) {
+              throw new Error("user_not_found");
+            }
+      
+            // =========================
+            // Create TicketStatus
+            // =========================
+            const createdStatus = await tx.ticketStatus.create({
+              data: {
+                ticketId: Number(ticketId),
+                state: ticketStatus,
+                inchargeById: Number(userId)
+              }
+            });
+      
+            // =========================
+            // If deny or complete, update Ticket.reply
+            // =========================
+            let updatedTicket = ticket;
+      
+            if (ticketStatus === "deny" || ticketStatus === "complete") {
+              updatedTicket = await tx.ticket.update({
+                where: {
+                  id: Number(ticketId)
+                },
+                data: {
+                  reply: reply || ""
+                },
+                include: {
+                  Project: true
+                }
+              });
+            }
+      
+            return {
+              ticket: updatedTicket,
+              ticketStatus: createdStatus,
+              inchargeUser: user
+            };
+          });
+      
+          return res.status(200).send({
+            message: "Owner incharge success",
+            result: {
+              ticketId: result.ticket.id,
+              ticketNo: result.ticket.ticketNo,
+              projectId: result.ticket.projectId,
+              projectName: result.ticket.Project?.name || "",
+              state: result.ticketStatus.state,
+              ticketStatusId: result.ticketStatus.id,
+              inchargeById: result.ticketStatus.inchargeById,
+              inchargeByName: result.inchargeUser.name || "",
+              inchargeByEmpNo: result.inchargeUser.empNo || "",
+              inchargeByDisplay: `${result.inchargeUser.name || ""}${
+                result.inchargeUser.empNo ? ` [${result.inchargeUser.empNo}]` : ""
+              }`,
+              reply: result.ticket.reply || "",
+              status: result.ticket.status
+            }
+          });
+        } catch (e) {
+          const statusCode =
+            e.message === "ticket_not_found" || e.message === "user_not_found"
+              ? 404
+              : 500;
+      
+          return res.status(statusCode).send({
+            message: "Owner incharge failed",
+            error: e.message
+          });
         }
       }
-
 
 
 

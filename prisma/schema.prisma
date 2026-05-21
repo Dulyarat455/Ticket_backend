@@ -95,6 +95,7 @@ model Ticket {
   projectId Int
   piority String
   userId Int
+  reply String?
   timeStmp DateTime @default(now())
   status String @default("use")
   Project Project @relation(fields: [projectId], references: [id])
@@ -126,6 +127,7 @@ model TicketStatus {
   ticketId Int
   state String
   inchargeById Int?
+  timeStmp DateTime @default(now())
   status String @default("use")
   Ticket Ticket @relation(fields: [ticketId], references: [id])
 }

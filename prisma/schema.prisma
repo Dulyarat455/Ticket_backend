@@ -26,8 +26,6 @@ model User {
   status String @default("use")
   MapGroupSectionUser MapGroupSectionUser[]
   Project Project[]
-  
-
 }
 
 
@@ -127,9 +125,21 @@ model TicketStatus {
   ticketId Int
   state String
   inchargeById Int?
+  remark String?
   timeStmp DateTime @default(now())
   status String @default("use")
   Ticket Ticket @relation(fields: [ticketId], references: [id])
+}
+
+
+model ProjectMember {
+  id Int @id() @default(autoincrement())
+  projectId Int
+  userId Int
+  email String?
+  phone String?
+  timeStmp DateTime @default(now())
+  status String @default("use")
 }
 
 

@@ -153,12 +153,51 @@ module.exports = {
         }catch(e){
             return res.status(500).send({ error: e.message });
         }
-     }
+     },
 
 
-
-
-
+     list: async (req, res) => {
+      try {
+        const chunkSize = 500;
+        const allRows = [];
+        let lastId = 0;
+    
+        while (true) {
+          const rows = await prisma.user.findMany({
+            where: {
+              status: 'use',
+              id: {
+                gt: lastId
+              }
+            },
+            orderBy: {
+              id: 'asc'
+            },
+            take: chunkSize
+          });
+    
+          if (!rows.length) {
+            break;
+          }
+    
+          allRows.push(...rows);
+    
+          lastId = rows[rows.length - 1].id;
+    
+          if (rows.length < chunkSize) {
+            break;
+          }
+        }
+    
+        return res.send({
+          results: allRows
+        });
+      } catch (e) {
+        return res.status(500).send({
+          error: e.message
+        });
+      }
+    }
 
 
 }

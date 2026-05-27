@@ -99,6 +99,8 @@ const uploadTicketFiles = multer({
 app.post('/api/user/create', (req, res) => userController.create(req,res))
 app.post('/api/user/signIn',(req, res) => userController.signIn(req, res))
 app.post('/api/user/mapUserGroupSection', (req, res) => userController.mapUserGroupSection(req,res))
+app.get('/api/user/list',(req,res) => userController.list(req,res))
+
 
 
 //section
@@ -113,6 +115,7 @@ app.post('/api/group/create', (req, res) => groupController.create(req,res))
 //project 
 app.post('/api/project/create', (req, res) => projectController.create(req,res))
 app.get('/api/project/list', (req, res) => projectController.list(req,res))
+app.post('/api/project/addMember', (req, res) => projectController.addMember(req,res))
 
 
 //ticket 
@@ -127,6 +130,9 @@ app.post("/api/ticket/ownerIncharge", (req, res) => ticketController.ownerInchar
 
 
 
+app.post("/api/ticket/owner/list", (req, res) =>
+  ticketController.ownerList(req, res)
+);
 
 
 

@@ -343,13 +343,13 @@ module.exports = {
       },
 
 
+
+
+
       ownerIncharge: async (req, res) => {
         try {
           const { userId, ticketId, ticketStatus, reply } = req.body;
       
-          // =========================
-          // Validate required fields
-          // =========================
           if (userId == null || ticketId == null || !ticketStatus) {
             return res.status(400).send({
               message: "missing_required_fields"
@@ -366,9 +366,6 @@ module.exports = {
           }
       
           const result = await prisma.$transaction(async (tx) => {
-            // =========================
-            // Check Ticket exists
-            // =========================
             const ticket = await tx.ticket.findFirst({
               where: {
                 id: Number(ticketId),
@@ -383,9 +380,6 @@ module.exports = {
               throw new Error("ticket_not_found");
             }
       
-            // =========================
-            // Check User exists
-            // =========================
             const user = await tx.user.findFirst({
               where: {
                 id: Number(userId),
@@ -402,9 +396,6 @@ module.exports = {
               throw new Error("user_not_found");
             }
       
-            // =========================
-            // Create TicketStatus
-            // =========================
             const createdStatus = await tx.ticketStatus.create({
               data: {
                 ticketId: Number(ticketId),
@@ -413,9 +404,6 @@ module.exports = {
               }
             });
       
-            // =========================
-            // If deny or complete, update Ticket.reply
-            // =========================
             let updatedTicket = ticket;
       
             if (ticketStatus === "deny" || ticketStatus === "complete") {
@@ -466,6 +454,261 @@ module.exports = {
       
           return res.status(statusCode).send({
             message: "Owner incharge failed",
+            error: e.message
+          });
+        }
+      },
+
+
+
+
+    ownerList: async (req, res) => {
+        try {
+          const { userId } = req.body;
+
+      
+          if (userId == null) {
+            return res.status(400).send({
+              message: "missing_userId"
+            });
+          }
+      
+          const owner = await prisma.user.findFirst({
+            where: {
+              id: userId,
+              status: "use"
+            },
+            select: {
+              id: true,
+              name: true,
+              empNo: true
+            }
+          });
+      
+          if (!owner) {
+            return res.status(404).send({
+              message: "owner_not_found"
+            });
+          }
+      
+          const projects = await prisma.project.findMany({
+            where: {
+              userId,
+              status: "use"
+            },
+            orderBy: {
+              id: "desc"
+            },
+            include: {
+              ProjectStatus: {
+                where: {
+                  status: "use"
+                },
+                orderBy: {
+                  id: "desc"
+                },
+                take: 1
+              }
+            }
+          });
+      
+          const projectIds = projects.map(p => p.id);
+      
+          if (!projectIds.length) {
+            return res.status(200).send({
+              message: "Fetch owner ticket list success",
+              owner,
+              projects: [],
+              results: []
+            });
+          }
+      
+          const tickets = await prisma.ticket.findMany({
+            where: {
+              status: "use",
+              projectId: {
+                in: projectIds
+              }
+            },
+            orderBy: {
+              id: "desc"
+            },
+            include: {
+              Project: {
+                select: {
+                  id: true,
+                  name: true,
+                  description: true,
+                  userId: true
+                }
+              },
+              FileTicket: {
+                where: {
+                  status: "use"
+                },
+                orderBy: {
+                  id: "asc"
+                },
+                select: {
+                  id: true,
+                  fileName: true,
+                  timeStmp: true
+                }
+              },
+              TicketStatus: {
+                where: {
+                  status: "use"
+                },
+                orderBy: {
+                  id: "asc"
+                },
+                select: {
+                  id: true,
+                  ticketId: true,
+                  state: true,
+                  inchargeById: true,
+                  timeStmp: true
+                }
+              }
+            }
+          });
+      
+          const requestUserIds = tickets
+            .map(t => t.userId)
+            .filter(id => !!id);
+      
+          const inchargeUserIds = tickets
+            .flatMap(t => t.TicketStatus.map(s => s.inchargeById))
+            .filter(id => !!id);
+      
+          const allUserIds = [...new Set([...requestUserIds, ...inchargeUserIds])];
+      
+          const users = await prisma.user.findMany({
+            where: {
+              id: {
+                in: allUserIds
+              },
+              status: "use"
+            },
+            select: {
+              id: true,
+              name: true,
+              empNo: true
+            }
+          });
+      
+          const userMap = new Map(users.map(u => [u.id, u]));
+      
+          const results = tickets.map(ticket => {
+            const requestUser = userMap.get(ticket.userId);
+            const latestStatus = ticket.TicketStatus.length
+              ? ticket.TicketStatus[ticket.TicketStatus.length - 1]
+              : null;
+      
+            const latestInchargeUser = latestStatus?.inchargeById
+              ? userMap.get(latestStatus.inchargeById)
+              : null;
+      
+            const histories = ticket.TicketStatus.map(statusRow => {
+              const inchargeUser = statusRow.inchargeById
+                ? userMap.get(statusRow.inchargeById)
+                : null;
+      
+              return {
+                id: statusRow.id,
+                ticketId: statusRow.ticketId,
+                state: statusRow.state,
+                inchargeById: statusRow.inchargeById,
+                inchargeByName: inchargeUser?.name || "",
+                inchargeByEmpNo: inchargeUser?.empNo || "",
+                inchargeByDisplay: inchargeUser
+                  ? `${inchargeUser.name}${inchargeUser.empNo ? ` [${inchargeUser.empNo}]` : ""}`
+                  : "-",
+                timeStmp: statusRow.timeStmp
+              };
+            });
+      
+            return {
+              id: ticket.id,
+              ticketNo: ticket.ticketNo,
+      
+              projectId: ticket.projectId,
+              projectName: ticket.Project?.name || "-",
+      
+              area: ticket.area,
+              contact: ticket.contact,
+              problemTitle: ticket.problemTitle,
+              problemDetail: ticket.problemDetail,
+              priority: ticket.piority,
+              reply: ticket.reply || "",
+      
+              state: latestStatus?.state || "wait",
+              ticketStatusId: latestStatus?.id || null,
+      
+              requestById: ticket.userId,
+              requestByName: requestUser?.name || "-",
+              requestByEmpNo: requestUser?.empNo || "-",
+              requestByDisplay: requestUser
+                ? `${requestUser.name}${requestUser.empNo ? ` [${requestUser.empNo}]` : ""}`
+                : "-",
+      
+              requestAt: ticket.timeStmp,
+      
+              inchargeById: latestStatus?.inchargeById || null,
+              inchargeByName: latestInchargeUser?.name || "",
+              inchargeByEmpNo: latestInchargeUser?.empNo || "",
+              inchargeByDisplay: latestInchargeUser
+                ? `${latestInchargeUser.name}${latestInchargeUser.empNo ? ` [${latestInchargeUser.empNo}]` : ""}`
+                : "-",
+      
+              attachments: ticket.FileTicket.map(file => ({
+                id: file.id,
+                fileName: file.fileName,
+                fileUrl: `/ticketFile/${file.fileName}`,
+                timeStmp: file.timeStmp
+              })),
+      
+              histories
+            };
+          });
+      
+          const projectResults = projects.map((project, index) => {
+            const projectTickets = results.filter(t => t.projectId === project.id);
+      
+            const open = projectTickets.filter(t => t.state === "wait").length;
+            const inProgress = projectTickets.filter(t => t.state === "onprocess").length;
+            const resolved = projectTickets.filter(t =>
+              t.state === "complete" || t.state === "deny"
+            ).length;
+      
+            const latestProjectStatus = project.ProjectStatus?.[0];
+      
+            return {
+              id: project.id,
+              name: project.name,
+              module: project.description || "No description",
+              status: latestProjectStatus?.state || "Offline",
+              open,
+              inProgress,
+              resolved,
+              color: ["blue", "purple", "orange", "green"][index % 4]
+            };
+          });
+      
+          return res.status(200).send({
+            message: "Fetch owner ticket list success",
+            owner: {
+              id: owner.id,
+              name: owner.name,
+              empNo: owner.empNo,
+              display: `${owner.name}${owner.empNo ? ` [${owner.empNo}]` : ""}`
+            },
+            projects: projectResults,
+            results
+          });
+        } catch (e) {
+          return res.status(500).send({
+            message: "Fetch owner ticket list failed",
             error: e.message
           });
         }

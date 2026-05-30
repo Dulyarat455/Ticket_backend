@@ -213,67 +213,100 @@ module.exports = {
 
       list: async (req, res) => {
         try {
-          const rows = await prisma.project.findMany({
-            where: {
-              status: 'use',
-            },
-            orderBy: {
-              id: 'desc',
-            },
+          const projects = await prisma.project.findMany({
+            where: { status: 'use' },
+            orderBy: { id: 'desc' },
             include: {
-              User: {
-                select: {
-                  id: true,
-                  name: true,
-                  empNo: true,
-                },
-              },
               ProjectStatus: {
-                where: {
-                  status: 'use',
-                },
-                orderBy: {
-                  timeStmp: 'desc',
-                },
-                take: 1,
-                select: {
-                  id: true,
-                  state: true,
-                  timeStmp: true,
-                },
-              },
-            },
+                where: { status: 'use' },
+                orderBy: { id: 'desc' },
+                take: 1
+              }
+            }
           });
       
-          const results = rows.map((item) => {
-            const latestStatus = item.ProjectStatus?.[0] || null;
+          const ownerIds = projects.map(p => p.userId);
+          const projectIds = projects.map(p => p.id);
+      
+          const members = await prisma.projectMember.findMany({
+            where: {
+              status: 'use',
+              projectId: { in: projectIds }
+            },
+            orderBy: { id: 'asc' }
+          });
+      
+          const memberUserIds = members.map(m => m.userId);
+          const allUserIds = [...new Set([...ownerIds, ...memberUserIds])];
+      
+          const users = await prisma.user.findMany({
+            where: {
+              id: { in: allUserIds },
+              status: 'use'
+            },
+            select: {
+              id: true,
+              name: true,
+              empNo: true
+            }
+          });
+      
+          const userMap = new Map(users.map(u => [u.id, u]));
+      
+          const results = projects.map(project => {
+            const owner = userMap.get(project.userId);
+            const latestStatus = project.ProjectStatus?.[0];
+      
+            const projectMembers = members
+              .filter(m => m.projectId === project.id)
+              .map(m => {
+                const user = userMap.get(m.userId);
+      
+                return {
+                  id: m.id,
+                  projectId: m.projectId,
+                  userId: m.userId,
+                  name: user?.name || '-',
+                  empNo: user?.empNo || '-',
+                  display: user
+                    ? `${user.name}${user.empNo ? ` [${user.empNo}]` : ''}`
+                    : '-',
+                  email: m.email || '',
+                  phone: m.phone || '',
+                  timeStmp: m.timeStmp
+                };
+              });
       
             return {
-              id: item.id,
-              name: item.name,
-              description: item.description,
-              email: item.email,
-              phone: item.phone,
-              userId: item.userId,
-              ownerName: item.User?.name || '',
-              ownerEmpNo: item.User?.empNo || '',
-              timeStmp: item.timeStmp,
+              id: project.id,
+              name: project.name,
+              description: project.description,
+              email: project.email,
+              phone: project.phone,
+              userId: project.userId,
       
-              // status ของ record project เอง เช่น use
-              status: item.status,
+              ownerName: owner?.name || '-',
+              ownerEmpNo: owner?.empNo || '-',
+              ownerDisplay: owner
+                ? `${owner.name}${owner.empNo ? ` [${owner.empNo}]` : ''}`
+                : '-',
       
-              // status สำหรับเอาไป show หน้าบ้าน
+              timeStmp: project.timeStmp,
+              status: project.status,
+      
               projectState: latestStatus?.state || '-',
               projectStateTime: latestStatus?.timeStmp || null,
+      
+              members: projectMembers,
+              memberCount: projectMembers.length
             };
           });
       
           return res.send({ results });
-      
         } catch (e) {
           return res.status(500).send({ error: e.message });
         }
-      },
+      }
 
       
 

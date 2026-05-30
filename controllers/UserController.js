@@ -7,18 +7,32 @@ module.exports = {
 
      create: async (req, res) => {
         try{
-            const {name, password } = req.body;
+            const { name, password, empNo, rfId, role } = req.body;
+
+
+            const checkUser = await prisma.user.findFirst({
+              where: {
+                name: name,
+                empNo: empNo,
+                rfId: rfId,
+                status: 'use',
+              },
+            });
+
+            if (checkUser) {
+              return res.status(400).send({ message: 'user_already' });
+            }
+
 
             const  user = await prisma.user.create({
                 data:{
                     name: name,
-                    password: password
-                },
-                select:{
-                    id: true,
-                    name: true,
-                    password: true
+                    password: password,
+                    empNo: empNo,
+                    rfId: rfId,
+                    role: role
                 }
+               
             })
 
             return res.send({

@@ -125,7 +125,7 @@ app.post(
     (req, res) => ticketController.create(req, res)
   );
 
-app.get("/api/ticket/list", (req, res) => ticketController.list(req,res));
+app.get("/api/ticket/list", (req, res) => ticketController.listNew(req,res));
 app.post("/api/ticket/ownerIncharge", (req, res) => ticketController.ownerIncharge(req,res))
 
 

@@ -127,12 +127,10 @@ app.post(
 
 app.get("/api/ticket/list", (req, res) => ticketController.listNew(req,res));
 app.post("/api/ticket/ownerIncharge", (req, res) => ticketController.ownerIncharge(req,res))
-
-
-
 app.post("/api/ticket/owner/list", (req, res) =>
   ticketController.ownerList(req, res)
 );
+app.post("/api/ticket/requestTicket",(req, res) => ticketController.requestTicket(req,res))
 
 
 

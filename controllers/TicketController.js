@@ -1026,17 +1026,296 @@ module.exports = {
       },
 
 
-      requestTicket: async (req, res) =>{
-        try{
+      requestTicket: async (req, res) => {
+        try {
           const { userId } = req.body;
-
-
-        }catch(e){
-          return res.status(500).send({ error: e.message });
+          const requestUserId = Number(userId || 0);
+      
+          if (!requestUserId) {
+            return res.status(400).send({
+              message: "missing_userId"
+            });
+          }
+      
+          // =========================
+          // Find requester
+          // =========================
+          const requester = await prisma.user.findFirst({
+            where: {
+              id: requestUserId,
+              status: "use"
+            },
+            select: {
+              id: true,
+              name: true,
+              empNo: true
+            }
+          });
+      
+          if (!requester) {
+            return res.status(404).send({
+              message: "requester_not_found"
+            });
+          }
+      
+          // =========================
+          // Find tickets requested by this user
+          // =========================
+          const tickets = await prisma.ticket.findMany({
+            where: {
+              userId: requestUserId,
+              status: "use"
+            },
+            orderBy: {
+              id: "desc"
+            },
+            include: {
+              Project: {
+                select: {
+                  id: true,
+                  name: true,
+                  description: true,
+                  userId: true,
+                  email: true,
+                  phone: true
+                }
+              },
+              FileTicket: {
+                where: {
+                  status: "use"
+                },
+                orderBy: {
+                  id: "asc"
+                },
+                select: {
+                  id: true,
+                  fileName: true,
+                  timeStmp: true
+                }
+              },
+              TicketStatus: {
+                where: {
+                  status: "use"
+                },
+                orderBy: {
+                  id: "asc"
+                },
+                select: {
+                  id: true,
+                  ticketId: true,
+                  state: true,
+                  inchargeById: true,
+                  remark: true,
+                  timeStmp: true
+                }
+              }
+            }
+          });
+      
+          if (!tickets.length) {
+            return res.status(200).send({
+              message: "Fetch request ticket list success",
+              requester: {
+                id: requester.id,
+                name: requester.name,
+                empNo: requester.empNo,
+                display: `${requester.name}${requester.empNo ? ` [${requester.empNo}]` : ""}`
+              },
+              projects: [],
+              results: []
+            });
+          }
+      
+          // =========================
+          // Collect user ids
+          // requester + incharge users + project owners
+          // =========================
+          const inchargeUserIds = tickets
+            .flatMap(t => t.TicketStatus.map(s => s.inchargeById))
+            .filter(id => !!id);
+      
+          const projectOwnerIds = tickets
+            .map(t => t.Project?.userId)
+            .filter(id => !!id);
+      
+          const allUserIds = [
+            ...new Set([
+              requestUserId,
+              ...inchargeUserIds,
+              ...projectOwnerIds
+            ])
+          ];
+      
+          const users = await prisma.user.findMany({
+            where: {
+              id: {
+                in: allUserIds
+              },
+              status: "use"
+            },
+            select: {
+              id: true,
+              name: true,
+              empNo: true
+            }
+          });
+      
+          const userMap = new Map(users.map(u => [u.id, u]));
+      
+          // =========================
+          // Map ticket results
+          // =========================
+          const results = tickets.map(ticket => {
+            const requestUser = userMap.get(ticket.userId);
+      
+            const latestStatus = ticket.TicketStatus.length
+              ? ticket.TicketStatus[ticket.TicketStatus.length - 1]
+              : null;
+      
+            const latestInchargeUser = latestStatus?.inchargeById
+              ? userMap.get(latestStatus.inchargeById)
+              : null;
+      
+            const projectOwner = ticket.Project?.userId
+              ? userMap.get(ticket.Project.userId)
+              : null;
+      
+            const histories = ticket.TicketStatus.map(statusRow => {
+              const inchargeUser = statusRow.inchargeById
+                ? userMap.get(statusRow.inchargeById)
+                : null;
+      
+              return {
+                id: statusRow.id,
+                ticketId: statusRow.ticketId,
+                state: statusRow.state,
+                inchargeById: statusRow.inchargeById,
+                inchargeByName: inchargeUser?.name || "",
+                inchargeByEmpNo: inchargeUser?.empNo || "",
+                inchargeByDisplay: inchargeUser
+                  ? `${inchargeUser.name}${inchargeUser.empNo ? ` [${inchargeUser.empNo}]` : ""}`
+                  : "-",
+                remark: statusRow.remark || "",
+                timeStmp: statusRow.timeStmp
+              };
+            });
+      
+            return {
+              id: ticket.id,
+              ticketNo: ticket.ticketNo,
+      
+              projectId: ticket.projectId,
+              projectName: ticket.Project?.name || "-",
+              projectDescription: ticket.Project?.description || "",
+              projectOwnerId: ticket.Project?.userId || null,
+              projectOwnerName: projectOwner?.name || "-",
+              projectOwnerEmpNo: projectOwner?.empNo || "-",
+              projectOwnerDisplay: projectOwner
+                ? `${projectOwner.name}${projectOwner.empNo ? ` [${projectOwner.empNo}]` : ""}`
+                : "-",
+              projectEmail: ticket.Project?.email || "",
+              projectPhone: ticket.Project?.phone || "",
+      
+              area: ticket.area,
+              contact: ticket.contact,
+              problemTitle: ticket.problemTitle,
+              problemDetail: ticket.problemDetail,
+              priority: ticket.piority,
+              reply: ticket.reply || "",
+      
+              state: latestStatus?.state || "wait",
+              ticketStatusId: latestStatus?.id || null,
+      
+              requestById: ticket.userId,
+              requestByName: requestUser?.name || "-",
+              requestByEmpNo: requestUser?.empNo || "-",
+              requestByDisplay: requestUser
+                ? `${requestUser.name}${requestUser.empNo ? ` [${requestUser.empNo}]` : ""}`
+                : "-",
+      
+              requestAt: ticket.timeStmp,
+      
+              inchargeById: latestStatus?.inchargeById || null,
+              inchargeByName: latestInchargeUser?.name || "",
+              inchargeByEmpNo: latestInchargeUser?.empNo || "",
+              inchargeByDisplay: latestInchargeUser
+                ? `${latestInchargeUser.name}${latestInchargeUser.empNo ? ` [${latestInchargeUser.empNo}]` : ""}`
+                : "-",
+      
+              attachments: ticket.FileTicket.map(file => ({
+                id: file.id,
+                fileName: file.fileName,
+                fileUrl: `/ticketFile/${file.fileName}`,
+                timeStmp: file.timeStmp
+              })),
+      
+              histories
+            };
+          });
+      
+          // =========================
+          // Project summary เฉพาะ Project ที่ user นี้เคย request
+          // =========================
+          const projectMap = new Map();
+      
+          results.forEach(ticket => {
+            if (!projectMap.has(ticket.projectId)) {
+              projectMap.set(ticket.projectId, {
+                id: ticket.projectId,
+                name: ticket.projectName,
+                module: ticket.projectDescription || "No description",
+                ownerId: ticket.projectOwnerId,
+                ownerName: ticket.projectOwnerName,
+                ownerEmpNo: ticket.projectOwnerEmpNo,
+                ownerDisplay: ticket.projectOwnerDisplay,
+                email: ticket.projectEmail,
+                phone: ticket.projectPhone,
+                open: 0,
+                inProgress: 0,
+                resolved: 0,
+                deny: 0
+              });
+            }
+      
+            const project = projectMap.get(ticket.projectId);
+      
+            if (ticket.state === "wait") {
+              project.open += 1;
+            } else if (ticket.state === "onprocess") {
+              project.inProgress += 1;
+            } else if (ticket.state === "complete") {
+              project.resolved += 1;
+            } else if (ticket.state === "deny") {
+              project.deny += 1;
+            }
+          });
+      
+          const projects = Array.from(projectMap.values()).map((project, index) => ({
+            ...project,
+            color: ["blue", "purple", "orange", "green"][index % 4]
+          }));
+      
+          return res.status(200).send({
+            message: "Fetch request ticket list success",
+            requester: {
+              id: requester.id,
+              name: requester.name,
+              empNo: requester.empNo,
+              display: `${requester.name}${requester.empNo ? ` [${requester.empNo}]` : ""}`
+            },
+            projects,
+            results
+          });
+      
+        } catch (e) {
+          return res.status(500).send({
+            message: "Fetch request ticket list failed",
+            error: e.message
+          });
         }
       },
 
-      
+
 
       deleteOwnerTicket: async (req,res) =>{
         try{
